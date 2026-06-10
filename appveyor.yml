@@ -113,7 +113,17 @@ after_build:
 
       Write-Host "Fetching WebView2 bootstrapper..."
       $nsisDir = "$env:APPVEYOR_BUILD_FOLDER\build\windows\nsis"
+      # wails3 logs to stderr; PS 7 treats that as NativeCommandError without this guard.
+      $ErrorActionPreference = 'Continue'
+      if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+        $PSNativeCommandUseErrorActionPreference = $false
+      }
       wails3 generate webview2bootstrapper -dir $nsisDir 2>&1 | ForEach-Object { Write-Host $_ }
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      $bootstrapper = Join-Path $nsisDir 'MicrosoftEdgeWebview2Setup.exe'
+      if (-not (Test-Path $bootstrapper)) {
+        throw "WebView2 bootstrapper was not created at $bootstrapper"
+      }
 
 artifacts:
   - path: bin\TcNo-Acc-Switcher.exe
