@@ -1,10 +1,104 @@
 $ErrorActionPreference = 'Stop'
 
+if (-not $env:SIGNPATH_API_TOKEN) {
+  throw @'
+SIGNPATH_API_TOKEN is not set in AppVeyor environment variables.
+Use a SignPath CI user API token with submitter access to the test-signing policy.
+'@
+}
+
 $root = $env:APPVEYOR_BUILD_FOLDER
 $exePath = Join-Path $root 'bin\TcNo-Acc-Switcher.exe'
 $apiBase = "https://app.signpath.io/api/v1/$($env:SIGNPATH_ORGANIZATION_ID)"
 $authHeaders = @{ Authorization = "Bearer $($env:SIGNPATH_API_TOKEN)" }
 $expectedBuildUrl = "https://ci.appveyor.com/project/$($env:APPVEYOR_ACCOUNT_NAME)/$($env:APPVEYOR_PROJECT_SLUG)/builds/$($env:APPVEYOR_BUILD_ID)/job/$($env:APPVEYOR_JOB_ID)"
+
+function Get-AppVeyorWebhookArtifacts {
+  $jobId = $env:APPVEYOR_JOB_ID
+  $artifactUrl = "https://ci.appveyor.com/api/buildjobs/$jobId/artifacts"
+  try {
+    $items = @(Invoke-RestMethod -Method Get -Uri $artifactUrl)
+  } catch {
+    Write-Host "Artifact API lookup failed ($_); using known executable artifact metadata."
+    $items = @()
+  }
+
+  if ($items.Count -eq 0) {
+    $relativePath = 'bin\TcNo-Acc-Switcher.exe'
+    $items = @([PSCustomObject]@{
+      fileName = $relativePath
+      name     = 'executable'
+      type     = 'File'
+      sizeInBytes = (Get-Item (Join-Path $root $relativePath)).Length
+    })
+  }
+
+  return @($items | ForEach-Object {
+    $fileName = $_.fileName
+    $encodedPath = $fileName -replace '\\', '/'
+    @{
+      fileName = $fileName
+      name     = $_.name
+      type     = $_.type
+      size     = $_.sizeInBytes
+      url      = "https://ci.appveyor.com/api/buildjobs/$jobId/artifacts/$encodedPath"
+    }
+  })
+}
+
+function Invoke-SignPathAppVeyorIntegration {
+  $integrationUrl = "https://app.signpath.io/API/v1/$($env:SIGNPATH_ORGANIZATION_ID)/Integrations/AppVeyor?ProjectSlug=$($env:SIGNPATH_PROJECT_SLUG)&SigningPolicySlug=$($env:SIGNPATH_POLICY_SLUG)"
+  $payload = @{
+    accountName = $env:APPVEYOR_ACCOUNT_NAME
+    projectId   = [int]$env:APPVEYOR_PROJECT_ID
+    projectName = $env:APPVEYOR_PROJECT_NAME
+    projectSlug = $env:APPVEYOR_PROJECT_SLUG
+    buildId     = [int]$env:APPVEYOR_BUILD_ID
+    buildNumber = $env:APPVEYOR_BUILD_NUMBER
+    buildVersion = $env:APPVEYOR_BUILD_VERSION
+    buildJobId  = $env:APPVEYOR_JOB_ID
+    jobId       = $env:APPVEYOR_JOB_ID
+    repositoryName = $env:APPVEYOR_REPO_NAME
+    branch      = $env:APPVEYOR_REPO_BRANCH
+    commitId    = $env:APPVEYOR_REPO_COMMIT
+    commitAuthor = $env:APPVEYOR_REPO_COMMIT_AUTHOR
+    commitAuthorEmail = $env:APPVEYOR_REPO_COMMIT_AUTHOR_EMAIL
+    commitDate  = $env:APPVEYOR_REPO_COMMIT_TIMESTAMP
+    commitMessage = $env:APPVEYOR_REPO_COMMIT_MESSAGE
+    artifacts   = @(Get-AppVeyorWebhookArtifacts)
+  }
+
+  Write-Host "Triggering SignPath AppVeyor origin verification..."
+  try {
+    $response = Invoke-WebRequest -Method Post -Uri $integrationUrl -Headers $authHeaders -Body ($payload | ConvertTo-Json -Depth 6) -ContentType 'application/json'
+    Write-Host "SignPath integration accepted ($($response.StatusCode))."
+    if ($response.Headers.Location) {
+      Write-Host "Signing request location: $($response.Headers.Location)"
+    }
+  } catch {
+    $statusCode = $null
+    $details = $_.Exception.Message
+    if ($_.Exception.Response) {
+      $statusCode = [int]$_.Exception.Response.StatusCode
+      try {
+        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $details = $reader.ReadToEnd()
+        $reader.Close()
+      } catch {
+        # Keep default message when response body is unavailable.
+      }
+    }
+    throw @"
+SignPath AppVeyor integration failed ($statusCode).
+$details
+
+Checklist:
+- SIGNPATH_API_TOKEN is a SignPath CI user token with submitter access to $($env:SIGNPATH_POLICY_SLUG)
+- SignPath project links the AppVeyor trusted build system
+- AppVeyor account API v1+v2 are enabled and that bearer token is saved in SignPath
+"@
+  }
+}
 
 function Get-SignPathSigningRequest {
   param([string]$SigningRequestId)
@@ -50,6 +144,8 @@ function Wait-SignPathSigningRequest {
   }
   throw "Timed out waiting for SignPath signing request $SigningRequestId."
 }
+
+Invoke-SignPathAppVeyorIntegration
 
 Write-Host "Waiting for SignPath origin-verified signing request for $expectedBuildUrl..."
 $signingRequestId = $null

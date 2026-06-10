@@ -129,14 +129,6 @@ artifacts:
   - path: bin\TcNo-Acc-Switcher.exe
     name: executable
 
-deploy:
-  - provider: Webhook
-    url: https://app.signpath.io/API/v1/%SIGNPATH_ORGANIZATION_ID%/Integrations/AppVeyor?ProjectSlug=%SIGNPATH_PROJECT_SLUG%&SigningPolicySlug=%SIGNPATH_POLICY_SLUG%
-    authorization: 'Bearer %SIGNPATH_API_TOKEN%'
-    request_timeout: 5
-    on:
-      APPVEYOR_REPO_TAG: true
-
 after_deploy:
   - ps: . "$env:APPVEYOR_BUILD_FOLDER\ci\appveyor-deploy.ps1"
 
