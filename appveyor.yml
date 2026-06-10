@@ -15,6 +15,8 @@ environment:
   SIGNPATH_PROJECT_SLUG: "TcNo-Acc-Switcher"
   SIGNPATH_POLICY_SLUG: "test-signing"
   SIGNPATH_INSTALLER_ARTIFACT_CONFIGURATION_SLUG: "installer"
+  SIGNPATH_API_TOKEN:
+    secure: 3oIsIisCSSOgB9r4uzvgcbWegpCFrOXGpV5qTf2ijNNQ3NSZNz7K5q1k3wOgl1HV
   github_release_token:
     secure: RV5NBPt9kVuEp2SyxG8FKkaA7a4quJTiaxtLCui6ipA/nMpyfma41fbrZ8LMCFwA # TODO: Change back when done with testing
 
