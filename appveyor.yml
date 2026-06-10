@@ -129,7 +129,8 @@ artifacts:
   - path: bin\TcNo-Acc-Switcher.exe
     name: executable
 
-after_deploy:
+# deploy_script runs the deploy phase (after_deploy is skipped when no deploy: providers are set).
+deploy_script:
   - ps: . "$env:APPVEYOR_BUILD_FOLDER\ci\appveyor-deploy.ps1"
 
 #on_finish:
